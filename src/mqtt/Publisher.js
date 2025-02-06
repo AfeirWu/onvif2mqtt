@@ -24,29 +24,38 @@ export default class MqttPublisher {
     this.logger.info('Successfully connected.');
   };
 
-  publish = async (onvifId, eventData) => {
-    const { eventType, params } = eventData;
-    const sanitizedType = eventType.replace(/\//g, '_');
-    const baseTopic = `onvif2mqtt/${onvifId}/${sanitizedType}`;
+  publishEvent = async (onvifId, eventData) => {
+  // 添加默认值和空对象保护
+  const { 
+    eventType = 'unknown', 
+    params = {} 
+  } = eventData || {}; // 处理eventData为undefined的情况
+  
+  // 确保eventType是字符串类型
+  const sanitizedType = String(eventType).replace(/\//g, '_');
+  const baseTopic = `onvif2mqtt/${onvifId}/${sanitizedType}`;
 
-    try {
-      this.logger.debug('Publishing full event data', {
-        topic: baseTopic,
-        params
-      });
+  try {
+    this.logger.debug('Publishing full event data', {
+      topic: baseTopic,
+      params
+    });
 
-      await Promise.all([
-        this.client.publish(`${baseTopic}/params`, JSON.stringify(params), { retain: false }),
-        this.client.publish(`${baseTopic}/full`, JSON.stringify(eventData), { retain: false })
-      ]);
-    } catch (e) {
-      this.logger.error('Failed to publish event', {
-        error: e,
-        eventType,
-        params
-      });
-    }
-  };
+    await Promise.all([
+      this.client.publish(`${baseTopic}/params`, JSON.stringify(params), { retain: false }),
+      this.client.publish(`${baseTopic}/full`, JSON.stringify({
+        ...eventData,
+        eventType // 确保序列化数据完整性
+      }), { retain: false })
+    ]);
+  } catch (e) {
+    this.logger.error('Failed to publish event', {
+      error: e,
+      eventType,
+      params
+    });
+  }
+};
 
   publish_service_status = async (value, retain = true) => {
     const topic = `onvif2mqtt/status`;
