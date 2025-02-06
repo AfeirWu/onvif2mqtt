@@ -6,20 +6,11 @@ const NO_OP = () => {};
 const NAMESPACE_DELIMITER = ':';
 
 export const CALLBACK_TYPES = {
-  motion: 'onMotionDetected',
-};
-
-const EVENTS = {
-  'RuleEngine/MotionRegionDetector/Motion': CALLBACK_TYPES.motion,
-  'RuleEngine/MotionRegionDetector/Motion//.': CALLBACK_TYPES.motion,
-  'RuleEngine/CellMotionDetector/Motion': CALLBACK_TYPES.motion,
-  'RuleEngine/CellMotionDetector/Motion//.': CALLBACK_TYPES.motion,
-  'VideoSoure/MotionAlarm': CALLBACK_TYPES.motion,
-  'VideoSource/MotionAlarm': CALLBACK_TYPES.motion
+  event: 'onEventReceived',
 };
 
 const DEFAULT_CALLBACKS = {
-  [CALLBACK_TYPES.motion]: NO_OP,
+  [CALLBACK_TYPES.event]: NO_OP,
 };
 
 export default class SubscriberGroup {
@@ -55,19 +46,35 @@ export default class SubscriberGroup {
     this.subscribers.length = 0;
   };
 
-  _simpleItemsToObject = (items) => {
-    return items.reduce((out, item) => { out[item.$.Name] = item.$.Value; return out; }, {});
-  };
-
   onSubscriberEvent = (subscriberName, event) => {
-    const [namespace, eventType] = event.topic._.split(NAMESPACE_DELIMITER);
+    try {
+      const [namespace, eventType] = event.topic._.split(NAMESPACE_DELIMITER);
+      const simpleItems = event.message.message.data.simpleItem;
 
-    const callbackType = EVENTS[eventType];
-    const simpleItem = event.message.message.data.simpleItem;
-    const eventValue = this._simpleItemsToObject(simpleItem instanceof(Array) ? simpleItem : [simpleItem]);
+      const eventValue = {
+        timestamp: event.message.message.$.UtcTime,
+        eventType: eventType,
+        namespace: namespace,
+        params: {}
+      };
 
-    this.logger.trace('ONVIF received', { subscriberName, eventType, eventValue });
+      if (simpleItems) {
+        const items = Array.isArray(simpleItems) ? simpleItems : [simpleItems];
+        items.forEach(item => {
+          eventValue.params[item.$.Name] = item.$.Value;
+        });
+      }
 
-    this.callbacks[callbackType](subscriberName, eventValue);
+      this.logger.trace('ONVIF Event Received', {
+        subscriberName,
+        eventType: eventType,
+        params: eventValue.params
+      });
+
+      this.callbacks[CALLBACK_TYPES.event](subscriberName, eventValue);
+    } catch (error) {
+      this.logger.error('Error processing event', { error });
+    }
   };
 }
+        
