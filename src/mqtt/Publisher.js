@@ -24,7 +24,7 @@ export default class MqttPublisher {
     this.logger.info('Successfully connected.');
   };
 
-  publishEvent = async (onvifId, eventData) => {
+  publish = async (onvifId, eventData) => {
     const { eventType, params } = eventData;
     const sanitizedType = eventType.replace(/\//g, '_');
     const baseTopic = `onvif2mqtt/${onvifId}/${sanitizedType}`;
