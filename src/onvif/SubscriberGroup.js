@@ -3,78 +3,62 @@ import Subscriber from './Subscriber';
 
 const NO_OP = () => {};
 
-const NAMESPACE_DELIMITER = ':';
-
-export const CALLBACK_TYPES = {
-  event: 'onEventReceived',
-};
-
-const DEFAULT_CALLBACKS = {
-  [CALLBACK_TYPES.event]: NO_OP,
-};
-
 export default class SubscriberGroup {
   subscribers = [];
 
-  constructor(callbacks) {
-    this.callbacks = {
-      ...DEFAULT_CALLBACKS,
-      ...callbacks
-    };
+  constructor(callbacks = {}) {
+    this.callbacks = callbacks;
     this.logger = logger.child({ name: 'ONVIF' });
   }
 
-  withCallback = (callbackType, callback) => {
-    this.callbacks = {
-      ...this.callbacks,
-      [callbackType]: callback,
-    };
+  withCallback = (eventType, callback) => {
+    this.callbacks[eventType] = callback || NO_OP;
   };
 
   addSubscriber = (subscriberConfig) => {
-    this.subscribers.push(new Subscriber({
-      ...subscriberConfig,
-      onEvent: this.onSubscriberEvent,
-    }));
+    this.subscribers.push(
+      new Subscriber({
+        ...subscriberConfig,
+        onEvent: this.onSubscriberEvent,
+      })
+    );
   };
 
   destroy = () => {
-    this.subscribers.forEach((item) => {
-      item.cam = null;
-      item = null;
+    this.subscribers.forEach((subscriber) => {
+      subscriber.cam = null;
     });
-    this.subscribers.length = 0;
+    this.subscribers = [];
+  };
+
+  parseSimpleItemsToObject = (simpleItems) => {
+    return simpleItems.reduce(
+      (result, item) => ({
+        ...result,
+        [item.$.Name]: item.$.Value,
+      }),
+      {}
+    );
   };
 
   onSubscriberEvent = (subscriberName, event) => {
-    try {
-      const [namespace, eventType] = event.topic._.split(NAMESPACE_DELIMITER);
-      const simpleItems = event.message.message.data.simpleItem;
+    const { topic, message } = event;
+    const eventType = topic._; // Extract event type from the topic
 
-      const eventValue = {
-        timestamp: event.message.message.$.UtcTime,
-        eventType: eventType,
-        namespace: namespace,
-        params: {}
-      };
+    const { data } = message.message;
+    const simpleItems = Array.isArray(data.simpleItem)
+      ? data.simpleItem
+      : [data.simpleItem];
+    const eventValue = this.parseSimpleItemsToObject(simpleItems);
 
-      if (simpleItems) {
-        const items = Array.isArray(simpleItems) ? simpleItems : [simpleItems];
-        items.forEach(item => {
-          eventValue.params[item.$.Name] = item.$.Value;
-        });
-      }
+    this.logger.trace('ONVIF event received', {
+      subscriberName,
+      eventType,
+      eventValue,
+    });
 
-      this.logger.trace('ONVIF Event Received', {
-        subscriberName,
-        eventType: eventType,
-        params: eventValue.params
-      });
-
-      this.callbacks[CALLBACK_TYPES.event](subscriberName, eventValue);
-    } catch (error) {
-      this.logger.error('Error processing event', { error });
-    }
+    const callback = this.callbacks[eventType] || NO_OP;
+    callback(subscriberName, eventValue);
   };
 }
-        
+     
