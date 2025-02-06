@@ -24,7 +24,7 @@ export default class MqttPublisher {
     this.logger.info('Successfully connected.');
   };
 
-  publishEvent = async (onvifId, eventData) => {
+  publish = async (onvifId, eventData) => {
   // 添加默认值和空对象保护
   const { 
     eventType = 'unknown', 
