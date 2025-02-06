@@ -5,11 +5,10 @@ import MqttPublisher from './mqtt/Publisher';
 
 import process from 'process';
 
-import { CALLBACK_TYPES } from "./onvif/SubscriberGroup";
-import debounceStateUpdate from "./utils/debounceStateUpdate";
+import debounceStateUpdate from './utils/debounceStateUpdate';
 import interpolateTemplateValues from './utils/interpolateTemplateValues';
 
-const convertBooleanToSensorState = bool => bool ? 'ON' : 'OFF';
+const convertBooleanToSensorState = (bool) => (bool ? 'ON' : 'OFF');
 
 export default class Manager {
   constructor() {
@@ -36,17 +35,17 @@ export default class Manager {
 
   initializeOnvifDevicesFunctions = () => {
     this.subscriber.destroy();
+
+    // Add default callback for all event types
+    this.subscriber.withCallback(undefined, this.onGenericEvent);
+
+    // Initialize devices
     this.initializeOnvifDevices(this.config.get('onvif'));
-    this.subscriber.withCallback(CALLBACK_TYPES.motion, this.onMotionDetected);
   };
 
-  initializeOnvifDevices = devices => {
+  initializeOnvifDevices = (devices) => {
     devices.forEach(async (onvifDevice) => {
-      const { name } = onvifDevice;
-
       await this.subscriber.addSubscriber(onvifDevice);
-
-      this.onMotionDetected(name, false);
     });
   };
 
@@ -57,45 +56,54 @@ export default class Manager {
       return;
     }
 
-    templates.forEach(({
-                         subtopic, template, retain
-                       }) => {
+    templates.forEach(({ subtopic, template, retain }) => {
       const interpolationValues = {
         onvifDeviceId,
         eventType,
-        eventState
+        eventState,
       };
 
-      const interpolatedSubtopic = interpolateTemplateValues(subtopic, interpolationValues);
-      const interpolatedTemplate = interpolateTemplateValues(template, interpolationValues);
+      const interpolatedSubtopic = interpolateTemplateValues(
+        subtopic,
+        interpolationValues
+      );
+      const interpolatedTemplate = interpolateTemplateValues(
+        template,
+        interpolationValues
+      );
 
-      this.publisher.publish(onvifDeviceId, interpolatedSubtopic, interpolatedTemplate, retain);
+      this.publisher.publish(
+        onvifDeviceId,
+        interpolatedSubtopic,
+        interpolatedTemplate,
+        retain
+      );
     });
   };
 
   /* Event Callbacks */
-  onMotionDetected = debounceStateUpdate((onvifDeviceId, motionState) => {
-    const topicKey = 'motion';
-    const boolMotionState = motionState.IsMotion !== undefined ? motionState.IsMotion : motionState.State;
-
-    this.publishTemplates(onvifDeviceId, topicKey, boolMotionState);
-    this.publisher.publish(onvifDeviceId, topicKey, convertBooleanToSensorState(boolMotionState));
-  });
-
-  onExitSendStatus = () => {
-    process.on('SIGTERM', async () => {
-      await this.publisher.publish_service_status('OFF');
-      process.exit(0);
-    });
-
-    process.on('SIGINT', async () => {
-      await this.publisher.publish_service_status('OFF');
-      process.exit(0);
-    });
-
-    process.on('beforeExit', async (code) => {
-      await this.publisher.publish_service_status('OFF');
-      process.exit(code);
+  onGenericEvent = (onvifDeviceId, eventState) => {
+    this.logger.info(`Generic Event: ${onvifDeviceId}`, { eventState });
+    Object.keys(eventState).forEach((eventType) => {
+      const value = eventState[eventType];
+      this.publishTemplates(onvifDeviceId, eventType, value);
+      this.publisher.publish(
+        onvifDeviceId,
+        eventType,
+        convertBooleanToSensorState(value)
+      );
     });
   };
+
+  onExitSendStatus = () => {
+    const exitHandler = async (code) => {
+      await this.publisher.publish_service_status('OFF');
+      process.exit(code);
+    };
+
+    process.on('SIGTERM', () => exitHandler(0));
+    process.on('SIGINT', () => exitHandler(0));
+    process.on('beforeExit', (code) => exitHandler(code));
+  };
 }
+       
