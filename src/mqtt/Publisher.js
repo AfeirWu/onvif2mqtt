@@ -24,18 +24,31 @@ export default class MqttPublisher {
     this.logger.info('Successfully connected.');
   };
 
-  publish = async (onvifId, event, value, retain = true) => {
-    const topic = `onvif2mqtt/${onvifId}/${event}`;
+  publishEvent = async (onvifId, eventData) => {
+    const { eventType, params } = eventData;
+    const sanitizedType = eventType.replace(/\//g, '_');
+    const baseTopic = `onvif2mqtt/${onvifId}/${sanitizedType}`;
 
     try {
-      this.logger.debug('Publishing.', { topic, value, retain });
-      await this.client.publish(`onvif2mqtt/${onvifId}/${event}`, value, { retain });
+      this.logger.debug('Publishing full event data', {
+        topic: baseTopic,
+        params
+      });
+
+      await Promise.all([
+        this.client.publish(`${baseTopic}/params`, JSON.stringify(params), { retain: false }),
+        this.client.publish(`${baseTopic}/full`, JSON.stringify(eventData), { retain: false })
+      ]);
     } catch (e) {
-      this.logger.error('Failed to publish', { error: e, topic, value, retain });
+      this.logger.error('Failed to publish event', {
+        error: e,
+        eventType,
+        params
+      });
     }
   };
 
-  publish_service_status = async (value ,retain = true) => {
+  publish_service_status = async (value, retain = true) => {
     const topic = `onvif2mqtt/status`;
 
     try {
@@ -46,3 +59,4 @@ export default class MqttPublisher {
     }
   };
 }
+   
